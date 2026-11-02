@@ -288,7 +288,7 @@ if not user:
     auth_page()
 else:
     st.sidebar.write(f"أهلاً، **{user['name']}**")
-    pages = ["المتجر", "شيتاتي"]
+    pages = ["متجرك", "شيتاتي"]
     if is_admin(user):
         pages.append("الأدمن")
     choice = st.sidebar.radio("القائمة", pages)
