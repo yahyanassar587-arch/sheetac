@@ -66,6 +66,162 @@ def init_db():
 
 
 # ---------- المستخدمين ----------
+import os
+import requests
+from flask import Flask, redirect, url_for, session, request, render_template_string, abort
+from authlib.integrations.flask_client import OAuth
+
+# ===== الإعدادات (حطها كمتغيرات بيئة) =====
+# ALLOWED_EMAIL         : yahyanassar587@gmail.com
+# GOOGLE_CLIENT_ID      : من Google Cloud Console
+# GOOGLE_CLIENT_SECRET  : من Google Cloud Console
+# SECRET_KEY            : أي نص عشوائي طويل
+ALLOWED_EMAIL = os.environ.get("ALLOWED_EMAIL", "your.email@gmail.com").lower()
+
+app = Flask(__name__)
+app.secret_key = os.environ.get("SECRET_KEY", "غيّر-المفتاح-ده")
+
+oauth = OAuth(app)
+oauth.register(
+    name="google",
+    client_id=os.environ["GOOGLE_CLIENT_ID"],
+    client_secret=os.environ["GOOGLE_CLIENT_SECRET"],
+    server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
+    client_kwargs={"scope": "openid email profile https://www.googleapis.com/auth/spreadsheets"},
+)
+
+SHEETS_API = "https://sheets.googleapis.com/v4/spreadsheets"
+
+PAGE = """
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>إضافة شيتات</title>
+<style>
+  body{font-family:Tahoma,Arial,sans-serif;background:#f4f6f8;margin:0;padding:24px}
+  .box{max-width:560px;margin:auto;background:#fff;padding:24px;border-radius:12px;box-shadow:0 2px 10px #0001}
+  h1{font-size:22px;margin-top:0}
+  h2{font-size:17px;margin-top:28px}
+  input,button{width:100%;padding:10px;margin:6px 0;font-size:15px;box-sizing:border-box}
+  button{background:#1a73e8;color:#fff;border:0;border-radius:8px;cursor:pointer}
+  .msg{padding:10px;border-radius:8px;margin:12px 0;background:#e6f4ea;color:#137333}
+  .err{background:#fce8e6;color:#c5221f}
+  .top{display:flex;justify-content:space-between;font-size:14px;color:#555}
+</style>
+</head>
+<body><div class="box">
+  <div class="top"><span>{{ email }}</span><a href="{{ url_for('logout') }}">خروج</a></div>
+  <h1>إضافة شيتات</h1>
+  {% if msg %}<div class="msg">{{ msg|safe }}</div>{% endif %}
+  {% if error %}<div class="msg err">{{ error }}</div>{% endif %}
+
+  <h2>1) إنشاء ملف Spreadsheet جديد</h2>
+  <form method="post" action="{{ url_for('create_spreadsheet') }}">
+    <input name="title" placeholder="اسم الملف" required>
+    <button>إنشاء</button>
+  </form>
+
+  <h2>2) إضافة شيت (تبويب) لملف موجود</h2>
+  <form method="post" action="{{ url_for('add_sheet') }}">
+    <input name="spreadsheet_id" placeholder="Spreadsheet ID (من رابط الملف)" required>
+    <input name="sheet_title" placeholder="اسم الشيت الجديد" required>
+    <button>إضافة الشيت</button>
+  </form>
+</div></body></html>
+"""
+
+
+def current_email():
+    return (session.get("user") or {}).get("email", "").lower()
+
+
+def require_owner():
+    """يسمح فقط للجيميل المحدد."""
+    if not session.get("user"):
+        return redirect(url_for("login"))
+    if current_email() != ALLOWED_EMAIL:
+        session.clear()
+        abort(403)
+    return None
+
+
+def auth_headers():
+    return {"Authorization": f"Bearer {session['token']['access_token']}"}
+
+
+@app.route("/")
+def index():
+    guard = require_owner()
+    if guard:
+        return guard
+    return render_template_string(
+        PAGE, email=current_email(),
+        msg=request.args.get("msg"), error=request.args.get("error"),
+    )
+
+
+@app.route("/login")
+def login():
+    return oauth.google.authorize_redirect(url_for("callback", _external=True))
+
+
+@app.route("/callback")
+def callback():
+    token = oauth.google.authorize_access_token()
+    info = token.get("userinfo") or {}
+    email = info.get("email", "").lower()
+    if email != ALLOWED_EMAIL or not info.get("email_verified", False):
+        session.clear()
+        abort(403)
+    session["user"] = {"email": email}
+    session["token"] = {"access_token": token["access_token"]}
+    return redirect(url_for("index"))
+
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("login"))
+
+
+@app.route("/create", methods=["POST"])
+def create_spreadsheet():
+    guard = require_owner()
+    if guard:
+        return guard
+    title = request.form["title"].strip()
+    r = requests.post(SHEETS_API, headers=auth_headers(),
+                      json={"properties": {"title": title}})
+    if r.ok:
+        d = r.json()
+        link = f'تم إنشاء الملف: <a href="{d["spreadsheetUrl"]}" target="_blank">{title}</a>'
+        return redirect(url_for("index", msg=link))
+    return redirect(url_for("index", error=f"فشل الإنشاء: {r.text[:200]}"))
+
+
+@app.route("/add", methods=["POST"])
+def add_sheet():
+    guard = require_owner()
+    if guard:
+        return guard
+    sid = request.form["spreadsheet_id"].strip()
+    title = request.form["sheet_title"].strip()
+    body = {"requests": [{"addSheet": {"properties": {"title": title}}}]}
+    r = requests.post(f"{SHEETS_API}/{sid}:batchUpdate", headers=auth_headers(), json=body)
+    if r.ok:
+        return redirect(url_for("index", msg=f"تمت إضافة الشيت: {title}"))
+    return redirect(url_for("index", error=f"فشلت الإضافة: {r.text[:200]}"))
+
+
+@app.errorhandler(403)
+def forbidden(_):
+    return "غير مسموح. الصفحة دي خاصة بصاحبها فقط.", 403
+
+
+if __name__ == "__main__":
+    app.run(debug=True, port=5000)
 def hash_pw(password, salt):
     return hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 200_000).hex()
 
