@@ -25,11 +25,11 @@ def cfg(key, default=""):
 
 
 STORE_NAME = cfg("STORE_NAME", "متجر الشيتات")
-INSTAPAY_HANDLE = cfg("INSTAPAY_HANDLE", "yourname@instapay")
-WALLET_NUMBER = cfg("WALLET_NUMBER", "01000000000")
+INSTAPAY_HANDLE = cfg("INSTAPAY_HANDLE", "01285548849")
+WALLET_NUMBER = cfg("WALLET_NUMBER", "01285548849")
 WALLET_NAME = cfg("WALLET_NAME", "فودافون كاش / اتصالات كاش / أورنج كاش")
-WHATSAPP_NUMBER = cfg("WHATSAPP_NUMBER", "201000000000")  # بصيغة دولية بدون +
-ADMIN_PASSWORD = cfg("ADMIN_PASSWORD", "admin123")  # غيّرها!
+WHATSAPP_NUMBER = cfg("WHATSAPP_NUMBER", "201285548849")  # بصيغة دولية بدون +
+ADMIN_PASSWORD = cfg("ADMIN_PASSWORD", "YaYa.2052006")  # غيّرها!
 
 DATA_DIR = cfg("DATA_DIR", "data")
 SHEETS_DIR = os.path.join(DATA_DIR, "sheets")
